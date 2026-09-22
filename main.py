@@ -1,14 +1,13 @@
 import os
+import sqlite3
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import requests
-from motor.motor_asyncio import AsyncIOMotorClient
-from bson import ObjectId
 
 app = FastAPI()
 
-# تفعيل الـ CORS لتتمكن واجهة المستخدم (HTML) من الاتصال بالسيرفر بدون مشاكل أمنية
+# تفعيل الـ CORS لتتمكن واجهة المستخدم (HTML) من الاتصال بالسيرفر
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -17,14 +16,59 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ⚙️ جلب المتغيرات البيئية السرية من منصة Render
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
+# ⚙️ جلب المتغيرات البيئية من سيرفر Render
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHANNEL_USERNAME = os.getenv("CHANNEL_USERNAME")  # قناتك الحالية (مثال: @my_channel)
+CHANNEL_USERNAME = os.getenv("CHANNEL_USERNAME")  # معرف قناتك الأساسية (مثال: @my_channel)
 
-# الاتصال بقاعدة البيانات MongoDB
-client = AsyncIOMotorClient(MONGO_URI)
-db = client["ton_ad_platform"]
+# 🗄️ اسم ملف قاعدة البيانات المجانية التي ستنشأ تلقائياً داخل Render
+DB_FILE = "app_database.db"
+
+def init_db():
+    """إنشاء الجداول البرمجية داخل السيرفر تلقائياً عند التشغيل الأول"""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    
+    # جدول المستخدمين وأرصدتهم بالـ TON وعداد الإعلانات
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            telegram_id TEXT PRIMARY KEY,
+            username TEXT,
+            balance_ton REAL,
+            watched_ads_for_withdraw INTEGER,
+            is_verified INTEGER
+        )
+    ''')
+    
+    # جدول حملات المعلنين الخارجيين لقنوات تليجرام
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS campaigns (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            owner_id TEXT,
+            channel TEXT,
+            target INTEGER,
+            current_count INTEGER,
+            reward_per_user REAL,
+            participants TEXT,
+            status TEXT
+        )
+    ''')
+    
+    # جدول فواتير السحب لتدقيقها ودفعها للمستخدمين
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS withdrawals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            telegram_id TEXT,
+            wallet TEXT,
+            amount REAL,
+            status TEXT
+        )
+    ''')
+    
+    conn.commit()
+    conn.close()
+
+# تشغيل دالة تهيئة قاعدة البيانات تلقائياً
+init_db()
 
 # ----------------------------------------------------
 # 📌 النماذج البرمجية للبيانات المستقبلة (Pydantic Models)
@@ -42,14 +86,14 @@ class CreateAdRequest(BaseModel):
 
 class CompleteTaskRequest(BaseModel):
     telegram_id: str
-    ad_id: str
+    ad_id: int
 
 class WithdrawRequest(BaseModel):
     telegram_id: str
     wallet_address: str
 
 # ----------------------------------------------------
-# 🔍 الدوال المساعدة (Helper Functions)
+# 🔍 الدوال المساعدة
 # ----------------------------------------------------
 def check_telegram_membership(user_id: str, chat_id: str) -> bool:
     """التحقق برمجياً من اشتراك المستخدم في قناة تليجرام معينة"""
@@ -59,7 +103,6 @@ def check_telegram_membership(user_id: str, chat_id: str) -> bool:
         data = response.json()
         if data.get("ok"):
             status = data["result"]["status"]
-            # العضو، المسؤول، والمنشئ يعتبرون مشتركين فعالين
             return status in ["member", "administrator", "creator"]
         return False
     except Exception:
@@ -71,169 +114,109 @@ def check_telegram_membership(user_id: str, chat_id: str) -> bool:
 
 @app.post("/api/user/status")
 async def get_user_status(user: UserInitData):
-    """جلب بيانات المستخدم، والتأكد من اشتراكه الإلزامي في قناتك الأساسية"""
-    # 1. التحقق من الاشتراك الإلزامي بالقناة التابعة لك
+    """جلب بيانات المستخدم والتحقق من اشتراكه الإلزامي بقناتك"""
     is_subscribed = check_telegram_membership(user.telegram_id, CHANNEL_USERNAME)
-    
-    # 2. البحث عن المستخدم أو إنشائه إن لم يكن موجوداً
-    db_user = await db.users.find_one({"_id": user.telegram_id})
-    if not db_user:
-        db_user = {
-            "_id": user.telegram_id,
-            "username": user.username,
-            "balance_ton": 0.0,
-            "watched_ads_for_withdraw": 0,
-            "is_verified": is_subscribed
-        }
-        await db.users.insert_one(db_user)
+    verified_status = 1 if is_subscribed else 0
+
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT balance_ton, watched_ads_for_withdraw FROM users WHERE telegram_id = ?", (user.telegram_id,))
+    row = cursor.fetchone()
+
+    if not row:
+        # تسجيل مستخدم جديد برصيد صفر تـون
+        cursor.execute("INSERT INTO users VALUES (?, ?, 0.0, 0, ?)", (user.telegram_id, user.username, verified_status))
+        conn.commit()
+        balance, watched = 0.0, 0
     else:
-        # تحديث حالة التحقق في قاعدة البيانات
-        await db.users.update_one({"_id": user.telegram_id}, {"$set": {"is_verified": is_subscribed}})
-        db_user["is_verified"] = is_subscribed
+        # تحديث حالة اشتراكه الحالية بالقناة
+        cursor.execute("UPDATE users SET is_verified = ? WHERE telegram_id = ?", (verified_status, user.telegram_id))
+        conn.commit()
+        balance, watched = row[0], row[1]
+    
+    conn.close()
 
     return {
-        "telegram_id": db_user["_id"],
-        "balance_ton": db_user["balance_ton"],
-        "watched_ads": db_user["watched_ads_for_withdraw"],
+        "telegram_id": user.telegram_id,
+        "balance_ton": balance,
+        "watched_ads": watched,
         "must_subscribe": not is_subscribed,
         "channel_url": f"https://t.me{CHANNEL_USERNAME.replace('@', '')}"
     }
 
 @app.post("/api/ads/watch")
 async def watch_ad(req: WatchAdRequest):
-    """احساب مشاهدة الإعلانات الاختيارية لزيادة الرصيد وتحديث عداد السحب"""
-    user = await db.users.find_one({"_id": req.telegram_id})
-    if not user:
-        raise HTTPException(status_code=404, detail="المستخدم غير مسجل")
-
-    # إضافة مكافأة مشاهدة الإعلان الاختياري (مثال: 0.001 TON)
-    # وزيادة عداد السحب الإجباري بمقدار 1 حتى يصل لـ 20
-    reward = 0.001 
+    """احساب أرباح مشاهدة الإعلانات الاختيارية وتحديث عداد السحب الـ 20"""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
     
-    await db.users.update_one(
-        {"_id": req.telegram_id},
-        {
-            "$inc": {
-                "balance_ton": reward,
-                "watched_ads_for_withdraw": 1
-            }
-        }
-    )
-    return {"success": True, "new_reward": reward, "total_watched": user.get("watched_ads_for_withdraw", 0) + 1}
+    reward = 0.001  # المكافأة بالـ TON عن كل إعلان
+    cursor.execute("UPDATE users SET balance_ton = balance_ton + ?, watched_ads_for_withdraw = watched_ads_for_withdraw + ? WHERE telegram_id = ?", (reward, 1, req.telegram_id))
+    conn.commit()
+    
+    cursor.execute("SELECT watched_ads_for_withdraw FROM users WHERE telegram_id = ?", (req.telegram_id,))
+    row = cursor.fetchone()
+    conn.close()
+    
+    return {"success": True, "new_reward": reward, "total_watched": row[0] if row else 1}
 
 @app.post("/api/campaigns/create")
 async def create_campaign(req: CreateAdRequest):
-    """إنشاء معلن خارجي لحملة إعلانية (تبادل أعضاء) بقيمة 0.30 TON داخل التطبيق"""
+    """إنشاء معلن خارجي لحملة ترويجية بقيمة 0.30 TON من رصيده الداخلي"""
     total_cost = 0.30
     admin_profit = 0.10
-    reward_per_user = (total_cost - admin_profit) / 100 # 0.002 TON للمستخدم المشترك
+    reward_per_user = (total_cost - admin_profit) / 100  # 0.002 TON للمستخدم المشترك
 
-    user = await db.users.find_one({"_id": req.owner_id})
-    if not user or user.get("balance_ton", 0) < total_cost:
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT balance_ton FROM users WHERE telegram_id = ?", (req.owner_id,))
+    row = cursor.fetchone()
+
+    if not row or row[0] < total_cost:
+        conn.close()
         raise HTTPException(status_code=400, detail="رصيدك الداخلي غير كافٍ لإنشاء الإعلان")
 
-    # خصم تكلفة الإعلان من رصيد المعلن الداخلي
-    await db.users.update_one({"_id": req.owner_id}, {"$inc": {"balance_ton": -total_cost}})
-
-    # تسجيل الحملة الإعلانية الجديدة
-    new_ad = {
-        "owner_id": req.owner_id,
-        "channel": req.channel_link, # يجب أن يكون المعرف مثل @example_channel
-        "target": 100,
-        "current_count": 0,
-        "reward_per_user": reward_per_user,
-        "participants": [],
-        "status": "active"
-    }
+    # خصم تكلفة الحملة
+    cursor.execute("UPDATE users SET balance_ton = balance_ton - ? WHERE telegram_id = ?", (total_cost, req.owner_id))
     
-    result = await db.campaigns.insert_one(new_ad)
-    return {"success": True, "campaign_id": str(result.inserted_id)}
-
-@app.post("/api/tasks/verify")
-async def verify_task(req: CompleteTaskRequest):
-    """تحقق مستخدم عادي من تنفيذ مهمة اشتراك بقناة معلن خارجي وكسب TON"""
-    try:
-        campaign = await db.campaigns.find_one({"_id": ObjectId(req.ad_id)})
-    except Exception:
-        raise HTTPException(status_code=400, detail="معرف الحملة غير صحيح")
-
-    if not campaign or campaign["status"] != "active":
-        raise HTTPException(status_code=404, detail="هذه الحملة غير نشطة أو مكتملة")
-
-    if req.telegram_id in campaign["participants"]:
-        raise HTTPException(status_code=400, detail="لقد قمت بإتمام هذه المهمة مسبقاً")
-
-    # التحقق من الاشتراك الفعلي في قناة المعلن الخارجي
-    is_member = check_telegram_membership(req.telegram_id, campaign["channel"])
-    if not is_member:
-        raise HTTPException(status_code=400, detail="لم تشترك في القناة بعد! الرجاء الاشتراك أولاً")
-
-    # تحديث الحملة الإعلانية
-    await db.campaigns.update_one(
-        {"_id": ObjectId(req.ad_id)},
-        {"$inc": {"current_count": 1}, "$push": {"participants": req.telegram_id}}
-    )
-
-    # إضافة المكافأة بالـ TON لحساب المستخدم مباشرة
-    await db.users.update_one(
-        {"_id": req.telegram_id},
-        {"$inc": {"balance_ton": campaign["reward_per_user"]}}
-    )
-
-    # إغلاق الحملة إذا بلغت الـ 100 مشترك المطلوبين
-    if campaign["current_count"] + 1 >= campaign["target"]:
-        await db.campaigns.update_one({"_id": ObjectId(req.ad_id)}, {"$set": {"status": "completed"}})
-
-    return {"success": True, "earned": campaign["reward_per_user"]}
+    # تسجيل الإعلان الجديد في جدول الحملات
+    cursor.execute("INSERT INTO campaigns (owner_id, channel, target, current_count, reward_per_user, participants, status) VALUES (?, ?, 100, 0, ?, '', 'active')",
+                   (req.owner_id, req.channel_link, reward_per_user))
+    conn.commit()
+    conn.close()
+    return {"success": True}
 
 @app.post("/api/user/withdraw")
 async def request_withdraw(req: WithdrawRequest):
-    """معالجة طلب السحب والتحقق الصارم من شروط الـ 20 إعلان والحد الأدنى"""
-    user = await db.users.find_one({"_id": req.telegram_id})
-    if not user:
+    """معالجة طلب السحب والتحقق الصارم من شرط الـ 20 إعلان والحد الأدنى 0.50 TON"""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT balance_ton, watched_ads_for_withdraw FROM users WHERE telegram_id = ?", (req.telegram_id,))
+    row = cursor.fetchone()
+
+    if not row:
+        conn.close()
         raise HTTPException(status_code=404, detail="المستخدم غير مسجل")
 
-    min_withdraw = 0.50 # الحد الأدنى للسحب 0.50 TON
-    if user.get("balance_ton", 0) < min_withdraw:
+    balance, watched_ads = row[0], row[1]
+    min_withdraw = 0.50
+
+    if balance < min_withdraw:
+        conn.close()
         raise HTTPException(status_code=400, detail=f"الحد الأدنى للسحب هو {min_withdraw} TON")
 
-    # 🔒 التحقق الصارم من شرط مشاهدة الـ 20 إعلان
-    if user.get("watched_ads_for_withdraw", 0) < 20:
-        raise HTTPException(
-            status_code=400, 
-            detail=f"يجب مشاهدة 20 إعلاناً لفتح السحب وتغطية الرسوم. لقد شاهدت: {user.get('watched_ads_for_withdraw', 0)}/20"
-        )
+    # 🔒 شرط الـ 20 إعلان الإجباري للسحب لضمان أرباح المنصة وتغطية الرسوم
+    if watched_ads < 20:
+        conn.close()
+        raise HTTPException(status_code=400, detail=f"يجب مشاهدة 20 إعلاناً لفك قفل السحب. لقد شاهدت: {watched_ads}/20")
 
-    # إذا استوفى الشروط، يتم تصفير العداد وخصم الرصيد بانتظار التحويل اليدوي أو عبر المحفظة الساخنة
-    await db.users.update_one(
-        {"_id": req.telegram_id},
-        {
-            "$set": {"watched_ads_for_withdraw": 0},
-            "$inc": {"balance_ton": -user["balance_ton"]}
-        }
-    )
-
-    # هنا يتم تسجيل عملية السحب في جدول السحوبات ليقوم الأدمن بالدفع أو ربط محفظة آلية لاحقاً
-    withdrawal_invoice = {
-        "telegram_id": req.telegram_id,
-        "wallet": req.wallet_address,
-        "amount": user["balance_ton"],
-        "status": "pending_payout"
-    }
-    await db.withdrawals.insert_one(withdrawal_invoice)
-
-    return {"success": True, "message": "تم تقديم طلب السحب بنجاح! سيتم التحويل إلى محفظتك قريباً بعد مراجعة الأمان."}
-
-@app.post("/api/admin/clean-leavers")
-async def clean_leavers():
-    """نظام العقوبات: فحص دوري لقنوات المعلنين ومعاقبة من غادروا بالخصم من أرصدتهم"""
-    penalties_count = 0
-    async for campaign in db.campaigns.find({"status": "active"}):
-        for user_id in campaign["participants"]:
-            if not check_telegram_membership(user_id, campaign["channel"]):
-                # المستخدم غش وغادر القناة، نقوم بخصم المكافأة وسحبه من المشاركين
-                await db.users.update_one({"_id": user_id}, {"$inc": {"balance_ton": -campaign["reward_per_user"]}})
-                await db.campaigns.update_one({"_id": campaign["_id"]}, {"$pull": {"participants": user_id}})
-                penalties_count += 1
-                
-    return {"success": True, "penalties_applied": penalties_count}
+    # تصفير العداد وخصم الرصيد المسحوب
+    cursor.execute("UPDATE users SET watched_ads_for_withdraw = 0, balance_ton = 0.0 WHERE telegram_id = ?", (req.telegram_id,))
+    
+    # تسجيل طلب السحب في جدول الفواتير للأدمن
+    cursor.execute("INSERT INTO withdrawals (telegram_id, wallet, amount, status) VALUES (?, ?, ?, 'pending')",
+                   (req.telegram_id, req.wallet_address, balance))
+    
+    conn.commit()
+    conn.close()
+    return {"success": True, "message": "تم تقديم طلب السحب بنجاح! سيتم التحويل إلى محفظة Tonkeeper الخاصة بك قريباً."}
