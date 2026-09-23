@@ -100,9 +100,11 @@ def check_telegram_membership(user_id: str, chat_id: str) -> bool:
 async def get_index():
     try:
         with open("index.html", "r", encoding="utf-8") as f:
-            return f.read()
+            # إرجاع محتوى الملف وتأكيد نوع البيانات كـ HTML تفاعلي لتليجرام
+            return HTMLResponse(content=f.read(), status_code=200, media_type="text/html")
     except FileNotFoundError:
-        return "<h3>⚠️ خطأ: لم يتم العثور على ملف index.html في السيرفر!</h3>"
+        return HTMLResponse(content="<h3>⚠️ خطأ: لم يتم العثور على ملف index.html في السيرفر!</h3>", status_code=404)
+
 
 @app.post("/api/user/status")
 async def get_user_status(user: UserInitData):
