@@ -4,10 +4,11 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import requests
+from fastapi.responses import HTMLResponse
 
 app = FastAPI()
 
-# تفعيل الـ CORS لتتمكن واجهة المستخدم (HTML) من الاتصال بالسيرفر
+# تفعيل الـ CORS لتتمكن واجهة المستخدم من الاتصال بالسيرفر بدون قيود
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -18,9 +19,9 @@ app.add_middleware(
 
 # ⚙️ جلب المتغيرات البيئية من سيرفر Render
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHANNEL_USERNAME = os.getenv("CHANNEL_USERNAME")  # معرف قناتك الأساسية (مثال: @my_channel)
+CHANNEL_USERNAME = os.getenv("CHANNEL_USERNAME")  # قناتك الحالية (مثال: @my_channel)
 
-# 🗄️ اسم ملف قاعدة البيانات المجانية التي ستنشأ تلقائياً داخل Render
+# 🗄️ اسم ملف قاعدة البيانات المجانية المحلية داخل السيرفر
 DB_FILE = "app_database.db"
 
 def init_db():
@@ -63,6 +64,15 @@ def init_db():
             status TEXT
         )
     ''')
+
+    # 🔗 جدول نظام الإحالات الجديد
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS referrals (
+            referrer_id TEXT,
+            referred_id TEXT UNIQUE,
+            status TEXT
+        )
+    ''')
     
     conn.commit()
     conn.close()
@@ -76,6 +86,7 @@ init_db()
 class UserInitData(BaseModel):
     telegram_id: str
     username: str = "unknown"
+    referrer_id: str = None  # استقبال معرف الشخص الداعي
 
 class WatchAdRequest(BaseModel):
     telegram_id: str
@@ -112,9 +123,18 @@ def check_telegram_membership(user_id: str, chat_id: str) -> bool:
 # 🚀 المسارات البرمجية للتطبيق (API Endpoints)
 # ----------------------------------------------------
 
+@app.get("/", response_class=HTMLResponse)
+async def get_index():
+    """دالة لقراءة ملف index.html وعرضه مباشرة عند فتح الرابط العام"""
+    try:
+        with open("index.html", "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        return "<h3>⚠️ خطأ: لم يتم العثور على ملف index.html في السيرفر!</h3>"
+
 @app.post("/api/user/status")
 async def get_user_status(user: UserInitData):
-    """جلب بيانات المستخدم والتحقق من اشتراكه الإلزامي بقناتك"""
+    """جلب بيانات المستخدم والتحقق من اشتراكه الإلزامي ونظام الإحالة"""
     is_subscribed = check_telegram_membership(user.telegram_id, CHANNEL_USERNAME)
     verified_status = 1 if is_subscribed else 0
 
@@ -124,15 +144,27 @@ async def get_user_status(user: UserInitData):
     row = cursor.fetchone()
 
     if not row:
-        # تسجيل مستخدم جديد برصيد صفر تـون
+        # تسجيل مستخدم جديد برصيد صفر تون
         cursor.execute("INSERT INTO users VALUES (?, ?, 0.0, 0, ?)", (user.telegram_id, user.username, verified_status))
+        
+        # 🔗 إذا كان المستخدم الجديد قد سجل عبر رابط إحالة خاص بشخص آخر
+        if user.referrer_id and user.referrer_id != user.telegram_id:
+            try:
+                cursor.execute("INSERT INTO referrals VALUES (?, ?, 'pending')", (user.referrer_id, user.telegram_id))
+            except sqlite3.IntegrityError:
+                pass
+        
         conn.commit()
         balance, watched = 0.0, 0
     else:
-        # تحديث حالة اشتراكه الحالية بالقناة
+        # تحديث حالة اشتراكه الحالية بالقناة الأساسية
         cursor.execute("UPDATE users SET is_verified = ? WHERE telegram_id = ?", (verified_status, user.telegram_id))
         conn.commit()
         balance, watched = row[0], row[1]
+    
+    # حساب عدد الإحالات الإجمالي للموكل الحالي لعرضه في الواجهة
+    cursor.execute("SELECT COUNT(*) FROM referrals WHERE referrer_id = ?", (user.telegram_id,))
+    ref_count = cursor.fetchone()[0]
     
     conn.close()
 
@@ -140,13 +172,14 @@ async def get_user_status(user: UserInitData):
         "telegram_id": user.telegram_id,
         "balance_ton": balance,
         "watched_ads": watched,
+        "referrals_count": ref_count,  # عدد أصدقاء المستخدم المدعوين
         "must_subscribe": not is_subscribed,
         "channel_url": f"https://t.me{CHANNEL_USERNAME.replace('@', '')}"
     }
 
 @app.post("/api/ads/watch")
 async def watch_ad(req: WatchAdRequest):
-    """احساب أرباح مشاهدة الإعلانات الاختيارية وتحديث عداد السحب الـ 20"""
+    """احتساب أرباح مشاهدة الإعلانات الاختيارية وتحديث عداد السحب الـ 20"""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     
@@ -165,7 +198,7 @@ async def create_campaign(req: CreateAdRequest):
     """إنشاء معلن خارجي لحملة ترويجية بقيمة 0.30 TON من رصيده الداخلي"""
     total_cost = 0.30
     admin_profit = 0.10
-    reward_per_user = (total_cost - admin_profit) / 100  # 0.002 TON للمستخدم المشترك
+    reward_per_user = (total_cost - admin_profit) / 100  # 0.002 TON للمخدم المشترك
 
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
@@ -220,13 +253,3 @@ async def request_withdraw(req: WithdrawRequest):
     conn.commit()
     conn.close()
     return {"success": True, "message": "تم تقديم طلب السحب بنجاح! سيتم التحويل إلى محفظة Tonkeeper الخاصة بك قريباً."}
-from fastapi.responses import HTMLResponse
-
-@app.get("/", response_class=HTMLResponse)
-async def get_index():
-    """دالة لقرأة ملف index.html وعرضه مباشرة عند فتح الرابط العام"""
-    try:
-        with open("index.html", "r", encoding="utf-8") as f:
-            return f.read()
-    except FileNotFoundError:
-        return "<h3>⚠️ خطأ: لم يتم العثور على ملف index.html في السيرفر!</h3>"
