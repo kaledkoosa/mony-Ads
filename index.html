@@ -5,11 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>منصة كسب عملة TON</title>
     
-    <!-- استدعاء سكربتات تليجرام ومحفظة TON الرسمية -->
     <script src="https://telegram.org"></script>
     <script src="https://unpkg.com"></script>
-    
-    <!-- 📢 السكربت الرسمي لشبكة Adsgram الإعلانية -->
     <script src="https://adsgram.ai"></script>
     
     <style>
@@ -21,110 +18,40 @@
             --success-color: #2ecc71;
             --danger-color: #e74c3c;
         }
-        
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background-color: var(--bg-color);
             color: var(--text-color);
-            margin: 0;
-            padding: 15px;
-            text-align: center;
+            margin: 0; padding: 15px; text-align: center;
         }
-
-        .header {
-            margin-bottom: 20px;
-        }
-
+        .header { margin-bottom: 20px; }
         .card {
-            background-color: var(--card-bg);
-            border-radius: 12px;
-            padding: 15px;
-            margin-bottom: 15px;
-            border: 1px solid #2d2d2d;
+            background-color: var(--card-bg); border-radius: 12px;
+            padding: 15px; margin-bottom: 15px; border: 1px solid #2d2d2d;
             box-shadow: 0 4px 6px rgba(0,0,0,0.3);
         }
-
-        .balance-title {
-            font-size: 14px;
-            color: #aaaaaa;
-            margin: 0;
-        }
-
-        .balance-amount {
-            font-size: 32px;
-            font-weight: bold;
-            color: var(--success-color);
-            margin: 5px 0;
-        }
-
+        .balance-title { font-size: 14px; color: #aaaaaa; margin: 0; }
+        .balance-amount { font-size: 32px; font-weight: bold; color: var(--success-color); margin: 5px 0; }
         .btn {
-            background-color: var(--accent-color);
-            color: white;
-            border: none;
-            padding: 12px 20px;
-            font-size: 16px;
-            border-radius: 8px;
-            cursor: pointer;
-            width: 100%;
-            font-weight: bold;
-            transition: background 0.3s;
-            margin-top: 10px;
+            background-color: var(--accent-color); color: white; border: none;
+            padding: 12px 20px; font-size: 16px; border-radius: 8px; cursor: pointer;
+            width: 100%; font-weight: bold; transition: background 0.3s; margin-top: 10px;
         }
-
-        .btn:disabled {
-            background-color: #444444;
-            color: #888888;
-            cursor: not-allowed;
-        }
-
+        .btn:disabled { background-color: #444444; color: #888888; cursor: not-allowed; }
         .btn-success { background-color: var(--success-color); }
-        .btn-danger { background-color: var(--danger-color); }
-
-        .progress-bar {
-            background-color: #333;
-            border-radius: 10px;
-            height: 12px;
-            width: 100%;
-            margin-top: 8px;
-            overflow: hidden;
-        }
-
-        .progress-fill {
-            background-color: var(--accent-color);
-            height: 100%;
-            width: 0%;
-            transition: width 0.5s ease;
-        }
-
+        .progress-bar { background-color: #333; border-radius: 10px; height: 12px; width: 100%; margin-top: 8px; overflow: hidden; }
+        .progress-fill { background-color: var(--accent-color); height: 100%; width: 0%; transition: width 0.5s ease; }
         .overlay {
-            position: fixed;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.9);
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            z-index: 9999;
-            padding: 20px;
-            box-sizing: border-box;
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9);
+            display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 9999; padding: 20px; box-sizing: border-box;
         }
-
         input[type="text"] {
-            width: 100%;
-            padding: 12px;
-            background: #2b2b2b;
-            border: 1px solid #444;
-            color: white;
-            border-radius: 8px;
-            box-sizing: border-box;
-            text-align: center;
-            font-size: 16px;
+            width: 100%; padding: 12px; background: #2b2b2b; border: 1px solid #444; color: white; border-radius: 8px; box-sizing: border-box; text-align: center; font-size: 16px;
         }
     </style>
 </head>
 <body>
 
-    <!-- 🔒 شاشة القفل في حال عدم الاشتراك الإلزامي بقناتك الأساسية -->
     <div id="sub-overlay" class="overlay" style="display: none;">
         <h2>⚠️ اشتراك إلزامي مطلوب</h2>
         <p>لاستخدام البوت وكسب عملة TON، يجب عليك الاشتراك في قناة البوت الرسمية أولاً لدعم الاستمرارية.</p>
@@ -132,34 +59,24 @@
         <button class="btn btn-success" onclick="verifyUserOnLoad()" style="margin-top: 15px;">🔄 لقد اشتركت، تحديث الآن</button>
     </div>
 
-    <!-- 📊 الواجهة الرئيسية للتطبيق المصغر -->
     <div class="header">
         <h2>💎 TON Task Earn</h2>
         <p id="username-display">مرحباً بك!</p>
     </div>
 
-    <!-- كارت الرصيد والعدادات وسحب الأرباح -->
     <div class="card">
         <p class="balance-title">رصيدك الحالي غير المسحوب</p>
         <div class="balance-amount"><span id="user-balance">0.0000</span> TON</div>
-        
-        <!-- زر التون كنيكت الرسمي لربط تون كيبر -->
-        <div id="ton-connect-btn" style="margin: 15px 0;"></div>
-        
+        <div id="ton-connect-btn" style="margin: 15px 0; display: flex; justify-content: center;"></div>
         <input type="text" id="wallet-input" placeholder="عنوان محفظة السحب تلقائي" readonly style="margin-bottom: 10px; font-size: 12px;">
-        
         <div>
             <span style="font-size: 13px; color: #aaa;">عداد إعلانات فك قفل السحب: </span>
             <span id="ad-count-text" style="font-weight: bold; color: var(--accent-color);">0 / 20</span>
         </div>
-        <div class="progress-bar">
-            <div id="ad-progress" class="progress-fill"></div>
-        </div>
-
+        <div class="progress-bar"><div id="ad-progress" class="progress-fill"></div></div>
         <button class="btn btn-success" id="withdraw-btn" onclick="requestWithdrawal()" disabled>💰 سحب الأرباح فوراً</button>
     </div>
 
-    <!-- 👥 كارت نظام الإحالات ودعوة الأصدقاء -->
     <div class="card">
         <h3>👥 نظام دعوة الأصدقاء (الإحالات)</h3>
         <p style="font-size: 13px; color: #aaa; margin: -5px 0 10px 0;">قم بنشر رابطك واكسب ميزات إضافية عن كل صديق ينضم للبوت.</p>
@@ -168,39 +85,28 @@
         <button class="btn" onclick="copyReferralLink()">📋 نسخ رابط الإحالة الخاص بي</button>
     </div>
 
-    <!-- كارت مشاهدة الإعلانات الاختيارية لكسب المزيد -->
     <div class="card">
         <h3>📺 شاهد إعلانات لزيادة رصيدك</h3>
         <p style="font-size: 13px; color: #aaa; margin: -5px 0 10px 0;">تكسب 0.001 TON إضافية عن كل إعلان فيديو تشاهده.</p>
         <button class="btn" onclick="showAdsgramVideo()">🎥 تشغيل إعلان فيديو مأجور</button>
     </div>
 
-    <!-- كارت إنشاء حملة إعلانية جديدة للمعلنين الخارجيين -->
-    <div class="card">
-        <h3>🚀 أنشئ حملتك الترويجية الخاصة</h3>
-        <p style="font-size: 13px; color: #aaa; margin: -5px 0 10px 0;">احصل على 100 مشترك لقناتك مقابل دفع 0.30 TON فقط.</p>
-        <input type="text" id="new-campaign-channel" placeholder="مثال: @my_new_channel"><br>
-        <button class="btn btn-danger" onclick="payAndCreateCampaign()">💎 ادفع عبر Tonkeeper وانشر</button>
-    </div>
-
-    <!-- كود جافا سكريبت التفاعلي لربط الواجهة بالسيرفر وعرض الإعلانات حية -->
     <script>
         const tg = window.Telegram.WebApp;
         tg.expand();
+        tg.ready(); // إعلام تليجرام بأن الواجهة جاهزة للعرض داخلياً لقفل الشاشة البيضاء
 
         const telegramUser = tg.initDataUnsafe.user || { id: "12345678", username: "GuestUser" };
         document.getElementById("username-display").innerText = `مرحباً، @${telegramUser.username}`;
 
         const BACKEND_URL = "https://onrender.com"; 
-        
         let userWalletAddress = "";
         let channelRedirectUrl = "";
 
-        // 🎬 تهيئة وإعداد أداة إعلانات Adsgram الحقيقية باستخدام الشفرة الخاصة بك
         const AdController = window.Adsgram.init({ blockId: "ad5221d88b9847cd91de95bd54cb970c" });
 
         const tonConnectUI = new TON_CONNECT_UI.TonConnectUI({
-            manifestUrl: 'https://githubusercontent.com',
+            manifestUrl: 'https://onrender.com/manifest.json', // المانيفست المحلي الحقيقي للمشروع لفك الحظر
             buttonRootId: 'ton-connect-btn'
         });
 
@@ -236,17 +142,59 @@
                     document.getElementById("sub-overlay").style.display = "flex";
                 } else {
                     document.getElementById("sub-overlay").style.display = "none";
-                    
                     document.getElementById("user-balance").innerText = data.balance_ton.toFixed(4);
                     document.getElementById("ad-count-text").innerText = `${data.watched_ads} / 20`;
                     document.getElementById("ref-count-text").innerText = data.referrals_count;
                     
-                    // توليد رابط الإحالة تليجرام تلقائياً باستخدام معرف بوتك الحالي
                     const botUsername = "tonmonyAdsbot"; 
                     document.getElementById("ref-link-input").value = `https://t.me{botUsername}/app?startapp=${telegramUser.id}`;
 
                     let progressPercent = Math.min((data.watched_ads / 20) * 100, 100);
                     document.getElementById("ad-progress").style.width = `${progressPercent}%`;
-                    
                     updateWithdrawButtonState(data.balance_ton, data.watched_ads);
                 }
+            } catch (error) {
+                console.error(error);
+            }
+        }
+
+        function openMainChannel() { if(channelRedirectUrl) tg.openTelegramLink(channelRedirectUrl); }
+
+        function updateWithdrawButtonState(balance = 0, watchedAds = 0) {
+            const btn = document.getElementById("withdraw-btn");
+            if (userWalletAddress && balance >= 0.50 && watchedAds >= 20) { btn.disabled = false; } else { btn.disabled = true; }
+        }
+
+        async function showAdsgramVideo() {
+            try {
+                const result = await AdController.show();
+                if (result.done) {
+                    const response = await fetch(`${BACKEND_URL}/api/ads/watch`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ telegram_id: String(telegramUser.id) })
+                    });
+                    const data = await response.json();
+                    if(data.success) {
+                        alert(`🎯 تم احتساب الإعلان بنجاح!`);
+                        verifyUserOnLoad();
+                    }
+                } else {
+                    alert("⚠️ يجب مشاهدة الإعلان كاملاً.");
+                }
+            } catch (e) {
+                alert("لا توجد إعلانات متوفرة، حاول لاحقاً.");
+            }
+        }
+
+        async function requestWithdrawal() {
+            try {
+                const response = await fetch(`${BACKEND_URL}/api/user/withdraw`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ telegram_id: String(telegramUser.id), wallet_address: userWalletAddress })
+                });
+                const data = await response.json();
+                alert(data.message || data.detail);
+                verifyUserOnLoad();
+            } catch (e) { alert("حدث خطأ."); }
