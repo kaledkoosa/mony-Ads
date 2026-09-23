@@ -4,11 +4,11 @@ import requests
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 
 app = FastAPI()
 
-# تفعيل الـ CORS لتتمكن واجهة المستخدم من الاتصال بالسيرفر
+# تفعيل الـ CORS بأعلى معايير الأمان لتليجرام
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -17,11 +17,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# جلب المتغيرات البيئية من سيرفر Render
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHANNEL_USERNAME = os.getenv("CHANNEL_USERNAME")
-
-# اسم ملف قاعدة البيانات المحلية
 DB_FILE = "app_database.db"
 
 def init_db():
@@ -96,15 +93,23 @@ def check_telegram_membership(user_id: str, chat_id: str) -> bool:
     except Exception:
         return False
 
+# 🌐 العرض الرئيسي المتوافق مع تليجرام حصرياً
 @app.get("/", response_class=HTMLResponse)
 async def get_index():
     try:
         with open("index.html", "r", encoding="utf-8") as f:
-            # إرجاع محتوى الملف وتأكيد نوع البيانات كـ HTML تفاعلي لتليجرام
             return HTMLResponse(content=f.read(), status_code=200, media_type="text/html")
     except FileNotFoundError:
-        return HTMLResponse(content="<h3>⚠️ خطأ: لم يتم العثور على ملف index.html في السيرفر!</h3>", status_code=404)
+        return HTMLResponse(content="<h3>⚠️ Error: index.html not found!</h3>", status_code=404)
 
+# 🔒 مسار ملف المانيفست الإلزامي لربط المحفظة داخل تليجرام
+@app.get("/manifest.json")
+async def get_manifest():
+    try:
+        with open("manifest.json", "r", encoding="utf-8") as f:
+            return Response(content=f.read(), media_type="application/json")
+    except FileNotFoundError:
+        return Response(content='{"error": "manifest not found"}', media_type="application/json", status_code=404)
 
 @app.post("/api/user/status")
 async def get_user_status(user: UserInitData):
@@ -128,7 +133,7 @@ async def get_user_status(user: UserInitData):
     else:
         cursor.execute("UPDATE users SET is_verified = ? WHERE telegram_id = ?", (verified_status, user.telegram_id))
         conn.commit()
-        balance, watched = row, row
+        balance, watched = row[0], row[1]
     
     cursor.execute("SELECT COUNT(*) FROM referrals WHERE referrer_id = ?", (user.telegram_id,))
     ref_count = cursor.fetchone()[0]
@@ -151,9 +156,9 @@ async def watch_ad(req: WatchAdRequest):
     cursor.execute("UPDATE users SET balance_ton = balance_ton + ?, watched_ads_for_withdraw = watched_ads_for_withdraw + ? WHERE telegram_id = ?", (reward, 1, req.telegram_id))
     conn.commit()
     cursor.execute("SELECT watched_ads_for_withdraw FROM users WHERE telegram_id = ?", (req.telegram_id,))
-    row = cursor.fetchone()[0]
+    row = cursor.fetchone()
     conn.close()
-    return {"success": True, "new_reward": reward, "total_watched": row}
+    return {"success": True, "new_reward": reward, "total_watched": row[0] if row else 1}
 
 @app.post("/api/user/withdraw")
 async def request_withdraw(req: WithdrawRequest):
@@ -164,7 +169,7 @@ async def request_withdraw(req: WithdrawRequest):
 
     if not row:
         conn.close()
-        raise HTTPException(status_code=404, detail="المستخدم غير مسجل")
+        raise HTTPException(status_code=404, detail="User not found")
 
     balance, watched_ads = row[0], row[1]
     if balance < 0.50:
