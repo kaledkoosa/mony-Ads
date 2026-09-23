@@ -3,7 +3,9 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 import threading
 
 # تهيئة البوت باستخدام التوكن السري المخزن في Render
-bot = telebot.TeleBot(BOT_TOKEN)
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+CHANNEL_USERNAME = os.getenv("CHANNEL_USERNAME")
+
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
