@@ -220,3 +220,13 @@ async def request_withdraw(req: WithdrawRequest):
     conn.commit()
     conn.close()
     return {"success": True, "message": "تم تقديم طلب السحب بنجاح! سيتم التحويل إلى محفظة Tonkeeper الخاصة بك قريباً."}
+from fastapi.responses import HTMLResponse
+
+@app.get("/", response_class=HTMLResponse)
+async def get_index():
+    """دالة لقرأة ملف index.html وعرضه مباشرة عند فتح الرابط العام"""
+    try:
+        with open("index.html", "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        return "<h3>⚠️ خطأ: لم يتم العثور على ملف index.html في السيرفر!</h3>"
