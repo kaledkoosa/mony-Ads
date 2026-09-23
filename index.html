@@ -9,6 +9,9 @@
     <script src="https://telegram.org"></script>
     <script src="https://unpkg.com"></script>
     
+    <!-- 📢 السكربت الرسمي لشبكة Adsgram الإعلانية -->
+    <script src="https://adsgram.ai"></script>
+    
     <style>
         :root {
             --bg-color: #121212;
@@ -156,7 +159,7 @@
         <button class="btn btn-success" id="withdraw-btn" onclick="requestWithdrawal()" disabled>💰 سحب الأرباح فوراً</button>
     </div>
 
-    <!-- 👥 كارت نظام الإحالات ودعوة الأصدقاء الجديد -->
+    <!-- 👥 كارت نظام الإحالات ودعوة الأصدقاء -->
     <div class="card">
         <h3>👥 نظام دعوة الأصدقاء (الإحالات)</h3>
         <p style="font-size: 13px; color: #aaa; margin: -5px 0 10px 0;">قم بنشر رابطك واكسب ميزات إضافية عن كل صديق ينضم للبوت.</p>
@@ -180,21 +183,22 @@
         <button class="btn btn-danger" onclick="payAndCreateCampaign()">💎 ادفع عبر Tonkeeper وانشر</button>
     </div>
 
-    <!-- كود جافا سكريبت التفاعلي لربط الواجهة بالسيرفر وعرض الإعلانات -->
+    <!-- كود جافا سكريبت التفاعلي لربط الواجهة بالسيرفر وعرض الإعلانات حية -->
     <script>
         const tg = window.Telegram.WebApp;
-        tg.expand(); // فتح التطبيق بكامل الشاشة
+        tg.expand();
 
         const telegramUser = tg.initDataUnsafe.user || { id: "12345678", username: "GuestUser" };
         document.getElementById("username-display").innerText = `مرحباً، @${telegramUser.username}`;
 
-        // 🔗 الرابط المرتبط بسيرفر ريندر الخاص بك تلقائياً
         const BACKEND_URL = "https://onrender.com"; 
         
         let userWalletAddress = "";
         let channelRedirectUrl = "";
 
-        // تهيئة زر ربط المحفظة الخاص بـ Tonkeeper
+        // 🎬 تهيئة وإعداد أداة إعلانات Adsgram الحقيقية باستخدام الشفرة الخاصة بك
+        const AdController = window.Adsgram.init({ blockId: "ad5221d88b9847cd91de95bd54cb970c" });
+
         const tonConnectUI = new TON_CONNECT_UI.TonConnectUI({
             manifestUrl: 'https://githubusercontent.com',
             buttonRootId: 'ton-connect-btn'
@@ -211,10 +215,8 @@
             updateWithdrawButtonState();
         });
 
-        // جلب وتحديث بيانات المستخدم من السيرفر بشكل مستمر
         async function verifyUserOnLoad() {
             try {
-                // التقاط معرف الشخص الداعي من رابط تليجرام المباشر إن وُجد
                 const urlParams = new URLSearchParams(window.location.search);
                 const referrerId = tg.initDataUnsafe.start_param || null;
 
@@ -235,12 +237,11 @@
                 } else {
                     document.getElementById("sub-overlay").style.display = "none";
                     
-                    // تحديث الأرصدة والعدادات ونظام الإحالة في الواجهة
                     document.getElementById("user-balance").innerText = data.balance_ton.toFixed(4);
                     document.getElementById("ad-count-text").innerText = `${data.watched_ads} / 20`;
                     document.getElementById("ref-count-text").innerText = data.referrals_count;
                     
-                    // ⚠️ ضع هنا اسم مستخدم البوت الخاص بك من الـ BotFather (بدون علامة @)
+                    // توليد رابط الإحالة تليجرام تلقائياً باستخدام معرف بوتك الحالي
                     const botUsername = "tonmonyAdsbot"; 
                     document.getElementById("ref-link-input").value = `https://t.me{botUsername}/app?startapp=${telegramUser.id}`;
 
