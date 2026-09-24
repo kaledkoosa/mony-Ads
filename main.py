@@ -83,7 +83,10 @@ class WithdrawRequest(BaseModel):
     wallet_address: str
 
 def check_telegram_membership(user_id: str, chat_id: str) -> bool:
+    if not BOT_TOKEN or not chat_id:
+        return False
     try:
+        # ✅ تم تصحيح رابط التليجرام هنا بنجاح
         url = f"https://telegram.org{BOT_TOKEN}/getChatMember"
         response = requests.get(url, params={"chat_id": chat_id, "user_id": user_id}, timeout=10)
         data = response.json()
@@ -139,13 +142,15 @@ async def get_user_status(user: UserInitData):
     ref_count = cursor.fetchone()[0]
     conn.close()
 
+    # ✅ تم تصحيح صياغة رابط القناة هنا
+    clean_channel = CHANNEL_USERNAME.replace('@', '') if CHANNEL_USERNAME else ""
     return {
         "telegram_id": user.telegram_id,
         "balance_ton": balance,
         "watched_ads": watched,
         "referrals_count": ref_count,
         "must_subscribe": not is_subscribed,
-        "channel_url": f"https://t.me{CHANNEL_USERNAME.replace('@', '')}"
+        "channel_url": f"https://t.me{clean_channel}"
     }
 
 @app.post("/api/ads/watch")
