@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>منصة كسب عملة TON</title>
     
+    <!-- ✅ تصحيح روابط المكتبات الرسمية لتليجرام والمحفظة والإعلانات -->
     <script src="https://telegram.org"></script>
     <script src="https://unpkg.com"></script>
     <script src="https://adsgram.ai"></script>
@@ -94,19 +95,22 @@
     <script>
         const tg = window.Telegram.WebApp;
         tg.expand();
-        tg.ready(); // إعلام تليجرام بأن الواجهة جاهزة للعرض داخلياً لقفل الشاشة البيضاء
+        tg.ready(); 
 
         const telegramUser = tg.initDataUnsafe.user || { id: "12345678", username: "GuestUser" };
         document.getElementById("username-display").innerText = `مرحباً، @${telegramUser.username}`;
 
-        const BACKEND_URL = "https://onrender.com"; 
+        // ⚠️ استبدل هذا الرابط برابط السيرفر الخاص بك على Render الحقيقي (ينتهي بـ .onrender.com)
+        const BACKEND_URL = "https://your-app-name.onrender.com"; 
         let userWalletAddress = "";
         let channelRedirectUrl = "";
 
+        // تهيئة إعلانات AdsGram
         const AdController = window.Adsgram.init({ blockId: "ad5221d88b9847cd91de95bd54cb970c" });
 
+        // تهيئة محفظة TON
         const tonConnectUI = new TON_CONNECT_UI.TonConnectUI({
-            manifestUrl: 'https://onrender.com/manifest.json', // المانيفست المحلي الحقيقي للمشروع لفك الحظر
+            manifestUrl: `${BACKEND_URL}/manifest.json`, 
             buttonRootId: 'ton-connect-btn'
         });
 
@@ -118,7 +122,7 @@
                 userWalletAddress = "";
                 document.getElementById("wallet-input").value = "";
             }
-            updateWithdrawButtonState();
+            verifyUserOnLoad(); // تحديث أزرار السحب بالاعتماد على رصيد السيرفر الحقيقي
         });
 
         async function verifyUserOnLoad() {
@@ -142,7 +146,7 @@
                     document.getElementById("sub-overlay").style.display = "flex";
                 } else {
                     document.getElementById("sub-overlay").style.display = "none";
-                    document.getElementById("user-balance").innerText = data.balance_ton.toFixed(4);
+                    document.getElementById("user-balance").innerText = Number(data.balance_ton).toFixed(4);
                     document.getElementById("ad-count-text").innerText = `${data.watched_ads} / 20`;
                     document.getElementById("ref-count-text").innerText = data.referrals_count;
                     
@@ -154,7 +158,7 @@
                     updateWithdrawButtonState(data.balance_ton, data.watched_ads);
                 }
             } catch (error) {
-                console.error(error);
+                console.error("خطأ في الاتصال بالخادم الرئيسي:", error);
             }
         }
 
@@ -162,7 +166,19 @@
 
         function updateWithdrawButtonState(balance = 0, watchedAds = 0) {
             const btn = document.getElementById("withdraw-btn");
-            if (userWalletAddress && balance >= 0.50 && watchedAds >= 20) { btn.disabled = false; } else { btn.disabled = true; }
+            if (userWalletAddress && balance >= 0.50 && watchedAds >= 20) { 
+                btn.disabled = false; 
+            } else { 
+                btn.disabled = true; 
+            }
+        }
+
+        function copyReferralLink() {
+            const linkInput = document.getElementById("ref-link-input");
+            linkInput.select();
+            linkInput.setSelectionRange(0, 99999);
+            navigator.clipboard.writeText(linkInput.value);
+            alert("📋 تم نسخ رابط الإحالة بنجاح!");
         }
 
         async function showAdsgramVideo() {
@@ -183,18 +199,7 @@
                     alert("⚠️ يجب مشاهدة الإعلان كاملاً.");
                 }
             } catch (e) {
-                alert("لا توجد إعلانات متوفرة، حاول لاحقاً.");
+                alert("لا توجد إعلانات متوفرة حالياً، حاول لاحقاً.");
             }
         }
 
-        async function requestWithdrawal() {
-            try {
-                const response = await fetch(`${BACKEND_URL}/api/user/withdraw`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ telegram_id: String(telegramUser.id), wallet_address: userWalletAddress })
-                });
-                const data = await response.json();
-                alert(data.message || data.detail);
-                verifyUserOnLoad();
-            } catch (e) { alert("حدث خطأ."); }
